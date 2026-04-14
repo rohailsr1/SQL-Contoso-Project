@@ -267,3 +267,15 @@ Additionally, it reinforces the importance of focusing on customer behavior and 
 This analysis reveals that revenue is highly concentrated among a small group of high-value customers, while a significant portion of the customer base contributes relatively little. At the same time, a large percentage of customers churn after their initial interaction, indicating a gap in retention strategy.
 
 The findings emphasize that sustainable business growth depends not only on acquiring new customers but also on retaining and nurturing existing ones. By focusing on customer segmentation, improving early-stage engagement, and implementing targeted retention strategies, businesses can significantly enhance both revenue and customer lifetime value.
+
+---
+
+# 👤 Author
+
+**Muhammad Rohail**
+
+BS Entrepreneurship  
+Aspiring Data Analyst | Business Analyst  
+
+GitHub:  
+https://github.com/rohailsr1
