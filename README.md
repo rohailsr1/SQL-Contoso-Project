@@ -30,6 +30,42 @@ Percentile-based segmentation using `PERCENTILE_CONT` allows for a statistically
 
 ---
 
+## Creating A View
+
+```sql
+
+
+CREATE VIEW cohort_analysis AS 
+
+WITH customer_revenue AS (
+         SELECT s.customerkey,
+            s.orderdate,
+            sum(s.netprice * s.quantity::double precision / s.exchangerate) AS total_net_revenue,
+            count(s.orderkey) AS num_orders,
+            MAX(c.countryfull) AS countryfull,
+            MAX(c.age) AS age,
+            MAX(c.givenname) AS givenname,
+            MAX(c.surname) AS surname
+           FROM sales s
+             LEFT JOIN customer c ON s.customerkey = c.customerkey
+          GROUP BY 
+          		s.customerkey, 
+          		s.orderdate
+        )
+ SELECT 
+ 	customerkey,
+    orderdate,
+    total_net_revenue,
+    num_orders,
+    countryfull,
+    age,
+    CONCAT (givenname, ' ', surname) AS cleaned_name,
+    min(orderdate) OVER (PARTITION BY customerkey) AS first_purchase_date,
+    EXTRACT(year FROM min(orderdate) OVER (PARTITION BY customerkey)) AS cohort_year
+   FROM customer_revenue cr;
+
+```
+---
 # 📊 Deep Analysis & Insights  
 
 ## 🔹 Customer Lifetime Value (LTV) Segmentation  
@@ -40,6 +76,45 @@ The results show that revenue is highly concentrated among the top 25% of custom
 
 From a business perspective, this indicates that not all customers should be treated equally. High-value customers represent the core revenue engine of the business and should be prioritized through personalized engagement strategies such as loyalty programs, exclusive offers, and premium experiences. Mid-value customers present the greatest opportunity for growth, as they can be converted into high-value users through targeted upselling and cross-selling strategies. Low-value customers, while important for volume, should be managed efficiently using automated and cost-effective engagement methods to avoid diminishing returns on marketing spend.
 
+```sql
+
+WITH customer_ltv AS (
+SELECT 
+	ca.customerkey,
+	ca.cleaned_name,
+	SUM (ca.total_net_revenue) AS total_ltv
+FROM cohort_analysis ca
+GROUP BY ca.customerkey, ca.cleaned_name
+), customer_segments AS (
+SELECT
+	PERCENTILE_CONT (0.25) WITHIN GROUP (ORDER BY total_ltv) AS ltv_25th_percentile,
+	PERCENTILE_CONT (0.75) WITHIN GROUP (ORDER BY total_ltv) AS ltv_75th_percentile
+FROM customer_ltv 
+), segment_values AS (
+SELECT 
+	c.*,
+	CASE 
+		WHEN  total_ltv < cs.ltv_25th_percentile THEN '1 - Low_Value'
+		WHEN total_ltv <= cs.ltv_75th_percentile THEN '2 - Migh_Value'
+		ELSE '3 - High_Value'
+		END AS customer_segment	
+FROM customer_ltv c, 
+	 customer_segments cs
+
+)
+
+SELECT 
+ 	customer_segment,
+ 	SUM (total_ltv) AS total_ltv,
+ 	COUNT (customerkey) AS customer_count,
+ 	SUM (total_ltv) / COUNT (customerkey) AS avg_ltv
+ FROM segment_values
+ GROUP BY customer_segment
+ ORDER BY customer_segment DESC
+
+```
+
+
 ---
 
 ## 🔹 Cohort Analysis (Customer Acquisition Quality)  
@@ -49,6 +124,24 @@ Customers are grouped into cohorts based on the year of their first purchase, al
 The analysis shows that older cohorts tend to generate higher revenue per customer compared to newer cohorts. This is primarily because older customers have had more time to make repeat purchases and increase their overall value. On the other hand, newer cohorts show lower revenue per customer, which may indicate either weaker acquisition quality or simply that these customers have not yet matured.
 
 This highlights the importance of evaluating customer acquisition not just by volume but by long-term value. Businesses should focus on attracting customers who are more likely to engage repeatedly rather than those who only make one-time purchases. Improving onboarding experiences, implementing lifecycle marketing strategies, and closely monitoring cohort performance can significantly enhance customer quality over time.
+
+```sql
+
+
+SELECT 
+	cohort_year,
+ 	COUNT(DISTINCT customerkey) AS total_customers,
+ 	SUM (total_net_revenue) AS total_revenue,
+ 	SUM (total_net_revenue) / COUNT(DISTINCT customerkey) AS customer_revenue
+FROM 
+	cohort_analysis cr
+WHERE orderdate = cr.first_purchase_date 
+GROUP BY 
+	cohort_year
+
+
+```
+
 
 ---
 
@@ -71,6 +164,45 @@ The analysis indicates that approximately 40–50% of customers fall into the ch
 A deeper look reveals that churn is especially high among one-time buyers, indicating that many customers do not move beyond their initial purchase. This represents a critical loss of potential revenue, as acquiring new customers is typically more expensive than retaining existing ones.
 
 To address this, businesses should implement proactive retention strategies such as re-engagement campaigns, personalized communication, and time-sensitive offers. Identifying customers who are approaching the churn threshold and targeting them with timely interventions can significantly reduce churn rates and improve overall profitability.
+
+```sql
+
+WITH customer_last_purchase AS (
+SELECT 
+	customerkey,
+	cleaned_name,
+	orderdate,
+	ROW_NUMBER () OVER (PARTITION BY customerkey 
+	ORDER BY orderdate DESC) AS rn,
+	first_purchase_date,
+	cohort_year 
+FROM cohort_analysis ca
+), 
+	churned_customers AS (
+			SELECT 
+			customerkey,
+			cleaned_name,
+			orderdate AS last_purchase_date,
+			CASE 
+				WHEN orderdate < (SELECT MAX(orderdate) FROM sales) - INTERVAL '6 months' THEN 'Churned'
+				ELSE 'Active' 
+			END AS customer_status,
+			cohort_year 
+		FROM customer_last_purchase
+		WHERE rn = 1 AND first_purchase_date  < (SELECT MAX(orderdate) FROM sales)- INTERVAL '6 months'
+)
+
+
+SELECT 
+	cohort_year,
+	customer_status,
+	COUNT (customerkey) AS num_customers,
+	SUM (COUNT (customerkey)) OVER(PARTITION BY cohort_year) AS total_customers,
+	ROUND(COUNT(customerkey)/SUM (COUNT (customerkey)) OVER(PARTITION BY cohort_year), 2)
+FROM churned_customers
+GROUP BY cohort_year,customer_status 
+
+```
 
 ---
 
